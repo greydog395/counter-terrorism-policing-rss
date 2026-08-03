@@ -1,100 +1,63 @@
 import requests
 from bs4 import BeautifulSoup
 from feedgen.feed import FeedGenerator
-from urllib.parse import urljoin
-from datetime import datetime, timezone
-from email.utils import format_datetime
-import re
+from datetime import datetime
+from email.utils import parsedate_to_datetime, format_datetime
 
-BASE = "https://www.counterterrorism.police.uk"
-SOURCE = "https://www.counterterrorism.police.uk/latest-news/"
 
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
+SOURCE = "https://www.counterterrorism.police.uk/feed/"
+
 
 response = requests.get(
     SOURCE,
-    headers=headers,
+    headers={"User-Agent": "Mozilla/5.0"},
     timeout=30
 )
 
 response.raise_for_status()
 
-soup = BeautifulSoup(response.text, "html.parser")
+soup = BeautifulSoup(response.text, "xml")
+
 
 feed = FeedGenerator()
 
 feed.title("Counter Terrorism Policing - Latest News")
-feed.link(href=SOURCE)
-feed.description("Latest news from Counter Terrorism Policing UK")
+feed.link(
+    href="https://www.counterterrorism.police.uk/latest-news/"
+)
+feed.description(
+    "Latest news from Counter Terrorism Policing UK"
+)
 feed.language("en")
 
-seen = set()
+
 count = 0
 
+for article in soup.find_all("item"):
 
-# Look for article containers
-for tag in soup.find_all(["article", "h2", "h3", "h4"]):
+    title = article.title.text.strip()
+    link = article.link.text.strip()
 
-    link = tag.find("a", href=True)
+    guid = link
 
-    if not link:
-        continue
+    pub = article.pubDate.text.strip()
 
-    url = urljoin(BASE, link["href"])
-
-    title = link.get_text(" ", strip=True)
-
-    if len(title) < 15:
-        continue
-
-    # Ignore non-article pages
-    if any(x in url for x in [
-        "/about/",
-        "/contact/",
-        "/privacy/",
-        "/cookies/",
-        "/search/"
-    ]):
-        continue
-
-    if url in seen:
-        continue
-
-    seen.add(url)
-
-
-    # Extract date if available
-    text = tag.parent.get_text(" ", strip=True)
-
-    match = re.search(
-        r"\d{1,2}\s+[A-Za-z]+\s+\d{4}",
-        text
-    )
-
-    if match:
-        try:
-            pub_date = datetime.strptime(
-                match.group(),
-                "%d %B %Y"
-            )
-        except:
-            pub_date = datetime.now(timezone.utc)
-    else:
-        pub_date = datetime.now(timezone.utc)
+    try:
+        date = parsedate_to_datetime(pub)
+    except:
+        date = datetime.utcnow()
 
 
     item = feed.add_entry()
 
     item.title(title)
-    item.link(href=url)
-    item.guid(url, permalink=True)
+    item.link(href=link)
+    item.guid(guid)
     item.description(
         "Counter Terrorism Policing latest news article"
     )
     item.pubDate(
-        format_datetime(pub_date)
+        format_datetime(date)
     )
 
     count += 1
@@ -103,7 +66,7 @@ for tag in soup.find_all(["article", "h2", "h3", "h4"]):
 print("FOUND ARTICLES:", count)
 
 feed.lastBuildDate(
-    format_datetime(datetime.now(timezone.utc))
+    format_datetime(datetime.utcnow())
 )
 
 feed.rss_file("feed.xml")

@@ -7,11 +7,12 @@ from email.utils import format_datetime
 BASE = "https://www.counterterrorism.police.uk"
 
 API = (
-    BASE +
-    "/wp-json/wp/v2/posts"
-    "?per_page=100"
-    "&page=1"
-    "&_embed"
+    BASE
+    + "/wp-json/wp/v2/posts"
+    + "?per_page=100"
+    + "&orderby=date"
+    + "&order=desc"
+    + "&_embed"
 )
 
 headers = {
@@ -32,12 +33,14 @@ posts = response.json()
 
 feed = FeedGenerator()
 
+
+# Feed identity
 feed.title(
     "Counter Terrorism Policing - Latest News"
 )
 
 feed.link(
-    href=BASE + "/latest-news/"
+    href=BASE
 )
 
 feed.description(
@@ -45,6 +48,14 @@ feed.description(
 )
 
 feed.language("en")
+
+
+# Feed icon
+feed.image(
+    url=BASE + "/favicon.ico",
+    title="Counter Terrorism Policing",
+    link=BASE
+)
 
 
 count = 0
@@ -56,10 +67,22 @@ for post in posts:
 
     link = post["link"]
 
-    date = datetime.fromisoformat(
-        post["date"]
-        .replace("Z", "+00:00")
-    )
+
+    # Publication date
+    try:
+
+        date = datetime.fromisoformat(
+            post["date"].replace(
+                "Z",
+                "+00:00"
+            )
+        )
+
+    except:
+
+        date = datetime.now(
+            timezone.utc
+        )
 
 
     # Featured image
@@ -72,13 +95,10 @@ for post in posts:
             ["wp:featuredmedia"][0]
         )
 
-        image = (
-            media["source_url"]
-        )
+        image = media["source_url"]
 
-    except Exception:
+    except:
         pass
-
 
 
     description = (
@@ -89,15 +109,18 @@ for post in posts:
     if image:
 
         description = (
-            f'<img src="{image}"><br>'
-            + description
+            f'<img src="{image}" />'
+            f'<br><br>'
+            f'{description}'
         )
-
 
 
     item = feed.add_entry()
 
-    item.title(title)
+
+    item.title(
+        title
+    )
 
     item.link(
         href=link

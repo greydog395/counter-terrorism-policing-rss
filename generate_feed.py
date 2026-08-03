@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 from feedgen.feed import FeedGenerator
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime, format_datetime
-from lxml import etree
 
 
 SOURCE = "https://www.counterterrorism.police.uk/feed/"
@@ -45,20 +44,22 @@ for article in soup.find_all("item"):
     link = article.link.text.strip()
 
 
-    if article.pubDate:
-        try:
-            date = parsedate_to_datetime(
-                article.pubDate.text.strip()
-            )
-        except:
-            date = datetime.now(timezone.utc)
-    else:
+    try:
+        date = parsedate_to_datetime(
+            article.pubDate.text.strip()
+        )
+
+    except:
         date = datetime.now(timezone.utc)
+
 
 
     image_url = None
 
+
+    # Get featured image from article
     try:
+
         page = requests.get(
             link,
             headers=headers,
@@ -82,6 +83,7 @@ for article in soup.find_all("item"):
         pass
 
 
+
     item = feed.add_entry()
 
     item.title(title)
@@ -97,19 +99,21 @@ for article in soup.find_all("item"):
     )
 
 
-    # Add RSS enclosure image
+    # RSS Dashboard compatible image
     if image_url:
-        item.enclosure(
-            image_url,
-            0,
-            "image/jpeg"
+
+        item.content(
+            f'<img src="{image_url}" /><br>'
+            f'Counter Terrorism Policing latest news article'
         )
+
 
 
     count += 1
 
 
 print("FOUND ARTICLES:", count)
+
 
 feed.lastBuildDate(
     format_datetime(datetime.now(timezone.utc))

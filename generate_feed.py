@@ -1,7 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 from feedgen.feed import FeedGenerator
-from feedgen.ext.media import MediaExtension
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime, format_datetime
 
@@ -13,7 +12,6 @@ headers = {
 }
 
 
-# Get WordPress RSS feed
 response = requests.get(
     SOURCE,
     headers=headers,
@@ -25,10 +23,7 @@ response.raise_for_status()
 soup = BeautifulSoup(response.text, "xml")
 
 
-# Create RSS feed
 feed = FeedGenerator()
-
-feed.register_extension(MediaExtension)
 
 feed.title("Counter Terrorism Policing - Latest News")
 feed.link(
@@ -48,11 +43,11 @@ for article in soup.find_all("item"):
     if not article.title or not article.link:
         continue
 
-
     title = article.title.text.strip()
     link = article.link.text.strip()
 
 
+    # Date
     if article.pubDate:
 
         try:
@@ -68,7 +63,7 @@ for article in soup.find_all("item"):
 
 
 
-    # Default description
+    # Description
     description = "Counter Terrorism Policing latest news article"
 
 
@@ -77,30 +72,28 @@ for article in soup.find_all("item"):
 
 
 
-    # Find article thumbnail
+    # Find thumbnail
     image_url = None
 
     try:
 
-        article_page = requests.get(
+        page = requests.get(
             link,
             headers=headers,
             timeout=15
         )
 
-        article_page.raise_for_status()
+        page.raise_for_status()
 
-        article_soup = BeautifulSoup(
-            article_page.text,
+        page_soup = BeautifulSoup(
+            page.text,
             "html.parser"
         )
 
-
-        image = article_soup.find(
+        image = page_soup.find(
             "meta",
             property="og:image"
         )
-
 
         if image:
             image_url = image.get("content")
@@ -111,7 +104,16 @@ for article in soup.find_all("item"):
 
 
 
-    # Create RSS item
+    # Add image into RSS description
+    if image_url:
+
+        description = (
+            f'<img src="{image_url}" />'
+            f'<br>{description}'
+        )
+
+
+
     item = feed.add_entry()
 
     item.title(title)
@@ -134,20 +136,11 @@ for article in soup.find_all("item"):
     )
 
 
-    # Add thumbnail if found
-    if image_url:
-
-        item.media.thumbnail(
-            url=image_url
-        )
-
-
     count += 1
 
 
 
 print("FOUND ARTICLES:", count)
-
 
 
 feed.lastBuildDate(
@@ -157,6 +150,4 @@ feed.lastBuildDate(
 )
 
 
-feed.rss_file(
-    "feed.xml"
-)
+feed.rss_file("feed.xml")

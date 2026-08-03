@@ -1,122 +1,227 @@
 import requests
 from bs4 import BeautifulSoup
 from feedgen.feed import FeedGenerator
+from urllib.parse import urljoin
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime, format_datetime
+from email.utils import format_datetime
+import re
 
+BASE = "https://www.counterterrorism.police.uk"
 
-SOURCE = "https://www.counterterrorism.police.uk/feed/"
+MAX_ARTICLES = 100
+MAX_PAGES = 20
 
 headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-
-response = requests.get(
-    SOURCE,
-    headers=headers,
-    timeout=30
-)
-
-response.raise_for_status()
-
-soup = BeautifulSoup(response.text, "xml")
-
-
 feed = FeedGenerator()
 
 feed.title("Counter Terrorism Policing - Latest News")
-feed.link(
-    href="https://www.counterterrorism.police.uk/latest-news/"
-)
-feed.description(
-    "Latest news from Counter Terrorism Policing UK"
-)
+feed.link(href=f"{BASE}/latest-news/")
+feed.description("Latest news from Counter Terrorism Policing")
 feed.language("en")
 
-
+seen = set()
 count = 0
 
+for page in range(1, MAX_PAGES + 1):
 
-for article in soup.find_all("item"):
+    if count >= MAX_ARTICLES:
+        break
 
-    title = article.title.text.strip()
-    link = article.link.text.strip()
+    if page == 1:
+        url = f"{BASE}/latest-news/"
+    else:
+        url = f"{BASE}/latest-news/page/{page}/"
 
+    print("Scanning:", url)
 
     try:
-        date = parsedate_to_datetime(
-            article.pubDate.text.strip()
-        )
+        r = requests.get(url, headers=headers, timeout=30)
 
-    except:
-        date = datetime.now(timezone.utc)
+        if r.status_code != 200:
+            break
 
+    except Exception:
+        break
 
+    soup = BeautifulSoup(r.text, "html.parser")
 
-    image_url = None
+    links = []
 
+    for a in soup.find_all("a", href=True):
 
-    # Get featured image from article
-    try:
+        href = urljoin(BASE, a["href"])
 
-        page = requests.get(
-            link,
-            headers=headers,
-            timeout=15
-        )
+        if "/news/" not in href:
+            continue
 
-        page_soup = BeautifulSoup(
-            page.text,
+        if href in seen:
+            continue
+
+        seen.add(href)
+
+        links.append(href)
+
+    for article_url in links:
+
+        if count >= MAX_ARTICLES:
+            break
+
+        try:
+
+            article = requests.get(
+                article_url,
+                headers=headers,
+                timeout=30
+            )
+
+            article.raise_for_status()
+
+        except Exception:
+            continue
+
+        page = BeautifulSoup(
+            article.text,
             "html.parser"
         )
 
-        image = page_soup.find(
+        #
+        # TITLE
+        #
+
+        title = None
+
+        og = page.find("meta", property="og:title")
+
+        if og:
+            title = og.get("content")
+
+        if not title:
+
+            h1 = page.find("h1")
+
+            if h1:
+                title = h1.get_text(" ", strip=True)
+
+        if not title:
+            continue
+
+        #
+        # DATE
+        #
+
+        pub_date = datetime.now(timezone.utc)
+
+        meta = page.find("meta", property="article:published_time")
+
+        if meta:
+
+            try:
+                pub_date = datetime.fromisoformat(
+                    meta["content"].replace("Z", "+00:00")
+                )
+
+            except:
+                pass
+
+        else:
+
+            text = page.get_text(" ", strip=True)
+
+            m = re.search(
+                r"\d{1,2}\s+[A-Za-z]+\s+\d{4}",
+                text
+            )
+
+            if m:
+
+                try:
+                    pub_date = datetime.strptime(
+                        m.group(),
+                        "%d %B %Y"
+                    ).replace(
+                        tzinfo=timezone.utc
+                    )
+
+                except:
+                    pass
+
+        #
+        # IMAGE
+        #
+
+        image = None
+
+        og = page.find("meta", property="og:image")
+
+        if og:
+            image = og.get("content")
+
+        if not image:
+
+            tw = page.find(
+                "meta",
+                attrs={
+                    "name": "twitter:image"
+                }
+            )
+
+            if tw:
+                image = tw.get("content")
+
+        #
+        # DESCRIPTION
+        #
+
+        description = ""
+
+        desc = page.find(
             "meta",
-            property="og:image"
+            property="og:description"
         )
+
+        if desc:
+
+            description = desc.get("content")
 
         if image:
-            image_url = image.get("content")
 
-    except:
-        pass
+            description = (
+                f'<img src="{image}" /><br><br>'
+                + description
+            )
 
+        item = feed.add_entry()
 
+        item.title(title)
 
-    item = feed.add_entry()
-
-    item.title(title)
-    item.link(href=link)
-    item.guid(link, permalink=True)
-
-    item.description(
-        "Counter Terrorism Policing latest news article"
-    )
-
-    item.pubDate(
-        format_datetime(date)
-    )
-
-
-    # RSS Dashboard compatible image
-    if image_url:
-
-        item.content(
-            f'<img src="{image_url}" /><br>'
-            f'Counter Terrorism Policing latest news article'
+        item.link(
+            href=article_url
         )
 
+        item.guid(
+            article_url,
+            permalink=True
+        )
 
+        item.description(
+            description
+        )
 
-    count += 1
+        item.pubDate(
+            format_datetime(pub_date)
+        )
 
+        count += 1
 
-print("FOUND ARTICLES:", count)
-
+print(f"FOUND ARTICLES: {count}")
 
 feed.lastBuildDate(
-    format_datetime(datetime.now(timezone.utc))
+    format_datetime(
+        datetime.now(timezone.utc)
+    )
 )
 
 feed.rss_file("feed.xml")
